@@ -1,1 +1,21 @@
-
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devsecops-green
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devsecops
+      version: green
+  template:
+    metadata:
+      labels:
+        app: devsecops
+        version: green
+    spec:
+      containers:
+      - name: app
+        image: myapp:green
+        ports:
+        - containerPort: 5000
