@@ -1,0 +1,61 @@
+name: DevSecOps CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  ACR_NAME: devsecopsacr123
+  IMAGE_NAME: devsecops-app
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # 🔐 Login to Azure
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # 🔐 Login to ACR
+      - name: Login to ACR
+        run: az acr login --name $ACR_NAME
+
+      # 🐳 Build Image
+      - name: Build Docker Image
+        run: |
+          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} .
+
+      # 📤 Push Image
+      - name: Push Docker Image
+        run: |
+          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}
+
+      # 🔍 Security Scan (Trivy)
+      - name: Scan Image
+        run: |
+          docker run aquasec/trivy image $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}
+
+      # 🚀 Deploy GREEN (Blue-Green Strategy)
+      - name: Deploy GREEN Version
+        run: |
+          kubectl set image deployment/devsecops-green \
+          devsecops-container=$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} \
+          -n dev
+
+      # 🧪 Health Check
+      - name: Verify Deployment
+        run: |
+          kubectl rollout status deployment/devsecops-green -n dev
+
+      # 🔄 Switch Traffic (Blue → Green)
+      - name: Switch Traffic
+        run: |
+          kubectl patch service devsecops-service \
+          -p '{"spec":{"selector":{"app":"green"}}}' -n dev
