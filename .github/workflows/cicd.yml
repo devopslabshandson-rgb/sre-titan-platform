@@ -11,6 +11,7 @@ env:
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
+    environment: AzureCredentials   # 👈 IMPORTANT (for environment secrets)
 
     steps:
 
@@ -18,11 +19,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # 2️⃣ Azure Login (FINAL FIXED)
+    # 2️⃣ Azure Login
     - name: Azure Login
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    # 🔍 Debug (temporary - remove later)
+    - name: Check Secret Length
+      run: |
+        echo "Secret length:"
+        echo "${{ secrets.AZURE_CREDENTIALS }}" | wc -c
 
     # 3️⃣ Login to ACR
     - name: Login to ACR
@@ -47,7 +54,7 @@ jobs:
           --name ${{ secrets.AKS_NAME }} \
           --overwrite-existing
 
-    # 7️⃣ Decide Blue or Green (SAFE)
+    # 7️⃣ Decide Blue or Green
     - name: Decide Deployment Color
       id: color
       run: |
@@ -81,7 +88,7 @@ jobs:
         COLOR=${{ steps.color.outputs.color }}
         kubectl rollout status deployment/devsecops-$COLOR
 
-    # 1️⃣1️⃣ Switch Traffic (Blue ↔ Green)
+    # 1️⃣1️⃣ Switch Traffic
     - name: Switch Service
       run: |
         COLOR=${{ steps.color.outputs.color }}
