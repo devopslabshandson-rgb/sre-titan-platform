@@ -6,4 +6,4 @@ COPY . .
 
 RUN pip install flask
 
-CMD ["python", "blue-app.py"]
+CMD ["python", "green-app.py"]
