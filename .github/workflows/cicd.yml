@@ -11,7 +11,7 @@ env:
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
-    environment: AzureCredentials   # 👈 IMPORTANT (for environment secrets)
+    environment: AzureCredentials   # 👈 IMPORTANT
 
     steps:
 
@@ -25,26 +25,22 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    # 🔍 Debug (temporary - remove later)
-    - name: Check Secret Length
-      run: |
-        echo "Secret length:"
-        echo "${{ secrets.AZURE_CREDENTIALS }}" | wc -c
-
     # 3️⃣ Login to ACR
     - name: Login to ACR
       run: |
         az acr login --name ${{ secrets.ACR_NAME }}
 
-    # 4️⃣ Build Docker Image
-    - name: Build Image
-      run: |
-        docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+    # 4️⃣ Setup Docker Buildx (IMPORTANT FIX)
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-    # 5️⃣ Push Image
-    - name: Push Image
+    # 5️⃣ Build & Push Image (AMD64 FIX)
+    - name: Build and Push Image
       run: |
-        docker push ${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker buildx build \
+          --platform linux/amd64 \
+          -t ${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+          --push .
 
     # 6️⃣ Get AKS Credentials
     - name: Get AKS Credentials
