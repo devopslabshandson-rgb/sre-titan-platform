@@ -16,6 +16,6 @@ spec:
     spec:
       containers:
       - name: app
-        image: myapp:blue
+        image: devsecopsacr14246.azurecr.io/devsecops-app:v2
         ports:
         - containerPort: 5000
