@@ -14,15 +14,15 @@ jobs:
 
     steps:
 
-    # 1️⃣ Checkout code
+    # 1️⃣ Checkout Code
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # 2️⃣ Azure Login
+    # 2️⃣ Azure Login (FIXED)
     - name: Azure Login
       uses: azure/login@v1
       with:
-        creds: >
+        creds: |
           {
             "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
             "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
@@ -30,7 +30,7 @@ jobs:
             "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
           }
 
-    # 3️⃣ ACR Login
+    # 3️⃣ Login to ACR
     - name: Login to ACR
       run: |
         az acr login --name ${{ secrets.ACR_NAME }}
@@ -53,32 +53,41 @@ jobs:
           --name ${{ secrets.AKS_NAME }} \
           --overwrite-existing
 
-    # 7️⃣ Decide Blue or Green
+    # 7️⃣ Decide Blue or Green (SAFE)
     - name: Decide Deployment Color
       id: color
       run: |
-        CURRENT=$(kubectl get svc devsecops-service -o jsonpath='{.spec.selector.version}')
+        CURRENT=$(kubectl get svc devsecops-service -o jsonpath='{.spec.selector.version}' 2>/dev/null || echo "blue")
+
         if [ "$CURRENT" = "blue" ]; then
           echo "color=green" >> $GITHUB_OUTPUT
         else
           echo "color=blue" >> $GITHUB_OUTPUT
         fi
 
-    # 8️⃣ Update Deployment Image
-    - name: Update Deployment
+    # 8️⃣ Ensure Deployment Exists
+    - name: Ensure Deployment Exists
+      run: |
+        COLOR=${{ steps.color.outputs.color }}
+
+        kubectl get deployment devsecops-$COLOR || \
+        kubectl apply -f k8s/deployment-$COLOR.yaml
+
+    # 9️⃣ Update Deployment Image
+    - name: Update Deployment Image
       run: |
         COLOR=${{ steps.color.outputs.color }}
 
         kubectl set image deployment/devsecops-$COLOR \
         app=${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-    # 9️⃣ Wait for rollout
+    # 🔟 Wait for rollout
     - name: Wait for rollout
       run: |
         COLOR=${{ steps.color.outputs.color }}
         kubectl rollout status deployment/devsecops-$COLOR
 
-    # 🔟 Switch Traffic (Blue → Green or vice versa)
+    # 1️⃣1️⃣ Switch Traffic (Blue ↔ Green)
     - name: Switch Service
       run: |
         COLOR=${{ steps.color.outputs.color }}
