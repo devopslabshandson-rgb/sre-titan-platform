@@ -11,11 +11,11 @@ env:
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
-    environment: AzureCredentials   # 👈 IMPORTANT
+    environment: AzureCredentials
 
     steps:
 
-    # 1️⃣ Checkout Code
+    # 1️⃣ Checkout
     - name: Checkout code
       uses: actions/checkout@v3
 
@@ -25,24 +25,24 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    # 3️⃣ Login to ACR
+    # 3️⃣ ACR Login
     - name: Login to ACR
       run: |
         az acr login --name ${{ secrets.ACR_NAME }}
 
-    # 4️⃣ Setup Docker Buildx (IMPORTANT FIX)
+    # 4️⃣ Setup Buildx
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    # 5️⃣ Build & Push Image (AMD64 FIX)
+    # 5️⃣ Build & Push (LATEST TAG ✅)
     - name: Build and Push Image
       run: |
         docker buildx build \
           --platform linux/amd64 \
-          -t ${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+          -t ${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest \
           --push .
 
-    # 6️⃣ Get AKS Credentials
+    # 6️⃣ AKS Credentials
     - name: Get AKS Credentials
       run: |
         az aks get-credentials \
@@ -50,7 +50,7 @@ jobs:
           --name ${{ secrets.AKS_NAME }} \
           --overwrite-existing
 
-    # 7️⃣ Decide Blue or Green
+    # 7️⃣ Decide Blue/Green
     - name: Decide Deployment Color
       id: color
       run: |
@@ -70,15 +70,15 @@ jobs:
         kubectl get deployment devsecops-$COLOR || \
         kubectl apply -f k8s/deployment-$COLOR.yaml
 
-    # 9️⃣ Update Deployment Image
+    # 9️⃣ Update Image (LATEST FIX)
     - name: Update Deployment Image
       run: |
         COLOR=${{ steps.color.outputs.color }}
 
         kubectl set image deployment/devsecops-$COLOR \
-        app=${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        app=${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
 
-    # 🔟 Wait for rollout
+    # 🔟 Rollout
     - name: Wait for rollout
       run: |
         COLOR=${{ steps.color.outputs.color }}
