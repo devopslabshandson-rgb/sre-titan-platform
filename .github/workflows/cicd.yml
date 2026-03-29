@@ -1,4 +1,4 @@
-name: DevSecOps CI/CD Pipeline
+name: CI-CD to AKS (Blue-Green Ready)
 
 on:
   push:
@@ -6,56 +6,82 @@ on:
       - main
 
 env:
-  ACR_NAME: devsecopsacr123
   IMAGE_NAME: devsecops-app
 
 jobs:
-  build-and-deploy:
+  build-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
 
-      # 🔐 Login to Azure
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+    # 1️⃣ Checkout code
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      # 🔐 Login to ACR
-      - name: Login to ACR
-        run: az acr login --name $ACR_NAME
+    # 2️⃣ Azure Login
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: >
+          {
+            "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+            "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+            "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+            "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+          }
 
-      # 🐳 Build Image
-      - name: Build Docker Image
-        run: |
-          docker build -t $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} .
+    # 3️⃣ ACR Login
+    - name: Login to ACR
+      run: |
+        az acr login --name ${{ secrets.ACR_NAME }}
 
-      # 📤 Push Image
-      - name: Push Docker Image
-        run: |
-          docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}
+    # 4️⃣ Build Docker Image
+    - name: Build Image
+      run: |
+        docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} .
 
-      # 🔍 Security Scan (Trivy)
-      - name: Scan Image
-        run: |
-          docker run aquasec/trivy image $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}
+    # 5️⃣ Push Image
+    - name: Push Image
+      run: |
+        docker push ${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-      # 🚀 Deploy GREEN (Blue-Green Strategy)
-      - name: Deploy GREEN Version
-        run: |
-          kubectl set image deployment/devsecops-green \
-          devsecops-container=$ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} \
-          -n dev
+    # 6️⃣ Get AKS Credentials
+    - name: Get AKS Credentials
+      run: |
+        az aks get-credentials \
+          --resource-group ${{ secrets.RESOURCE_GROUP }} \
+          --name ${{ secrets.AKS_NAME }} \
+          --overwrite-existing
 
-      # 🧪 Health Check
-      - name: Verify Deployment
-        run: |
-          kubectl rollout status deployment/devsecops-green -n dev
+    # 7️⃣ Decide Blue or Green
+    - name: Decide Deployment Color
+      id: color
+      run: |
+        CURRENT=$(kubectl get svc devsecops-service -o jsonpath='{.spec.selector.version}')
+        if [ "$CURRENT" = "blue" ]; then
+          echo "color=green" >> $GITHUB_OUTPUT
+        else
+          echo "color=blue" >> $GITHUB_OUTPUT
+        fi
 
-      # 🔄 Switch Traffic (Blue → Green)
-      - name: Switch Traffic
-        run: |
-          kubectl patch service devsecops-service \
-          -p '{"spec":{"selector":{"app":"green"}}}' -n dev
+    # 8️⃣ Update Deployment Image
+    - name: Update Deployment
+      run: |
+        COLOR=${{ steps.color.outputs.color }}
+
+        kubectl set image deployment/devsecops-$COLOR \
+        app=${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+    # 9️⃣ Wait for rollout
+    - name: Wait for rollout
+      run: |
+        COLOR=${{ steps.color.outputs.color }}
+        kubectl rollout status deployment/devsecops-$COLOR
+
+    # 🔟 Switch Traffic (Blue → Green or vice versa)
+    - name: Switch Service
+      run: |
+        COLOR=${{ steps.color.outputs.color }}
+
+        kubectl patch service devsecops-service \
+        -p "{\"spec\":{\"selector\":{\"app\":\"devsecops\",\"version\":\"$COLOR\"}}}"
